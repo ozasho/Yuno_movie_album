@@ -2,6 +2,45 @@ const STORAGE_KEY = "childVideoAlbumStateV1";
 const YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
 
 const defaultTags = ["日常", "旅行", "誕生日", "食事", "遊び", "保育園", "成長記録", "初めて"];
+const defaultBirthMonth = "2024-11";
+const categoryRules = [
+  {
+    label: "旅行",
+    keywords: ["旅行", "旅", "温泉", "ホテル", "旅館", "空港", "飛行機", "新幹線", "帰省", "遠出", "trip", "travel"],
+  },
+  {
+    label: "食事",
+    keywords: ["ごはん", "ご飯", "食事", "離乳食", "ミルク", "授乳", "おやつ", "ランチ", "朝食", "昼食", "夕食", "食べ", "飲み", "飲む"],
+  },
+  {
+    label: "おでかけ",
+    keywords: ["公園", "散歩", "お散歩", "おでかけ", "外出", "ドライブ", "買い物", "水族館", "動物園", "遊園地"],
+  },
+  {
+    label: "保育園",
+    keywords: ["保育園", "幼稚園", "入園", "園", "発表会", "運動会"],
+  },
+  {
+    label: "誕生日",
+    keywords: ["誕生日", "バースデー", "birthday", "ケーキ", "お祝い"],
+  },
+  {
+    label: "成長",
+    keywords: ["初めて", "はじめて", "寝返り", "ハイハイ", "はいはい", "つかまり立ち", "歩", "立っ", "しゃべ", "言葉", "成長"],
+  },
+  {
+    label: "睡眠",
+    keywords: ["寝", "ねんね", "昼寝", "お昼寝", "睡眠", "起床", "寝起き"],
+  },
+  {
+    label: "遊び",
+    keywords: ["遊び", "遊ぶ", "おもちゃ", "絵本", "ぬいぐるみ", "ボール"],
+  },
+  {
+    label: "お風呂",
+    keywords: ["お風呂", "風呂", "沐浴", "シャワー", "水遊び"],
+  },
+];
 
 const appState = {
   videos: [],
@@ -9,11 +48,13 @@ const appState = {
   settings: {
     clientId: "",
     tagSuggestions: defaultTags,
+    childBirthMonth: defaultBirthMonth,
     lastSyncAt: null,
   },
   ui: {
     view: "home",
     search: "",
+    category: "all",
   },
 };
 
@@ -33,6 +74,7 @@ function bindElements() {
     settingsButton: document.querySelector("#settingsButton"),
     addButton: document.querySelector("#addButton"),
     searchInput: document.querySelector("#searchInput"),
+    categoryFilters: document.querySelector("#categoryFilters"),
     statusLine: document.querySelector("#statusLine"),
     homeView: document.querySelector("#homeView"),
     timelineView: document.querySelector("#timelineView"),
@@ -43,6 +85,7 @@ function bindElements() {
     detailContent: document.querySelector("#detailContent"),
     settingsDialog: document.querySelector("#settingsDialog"),
     clientIdInput: document.querySelector("#clientIdInput"),
+    birthMonthInput: document.querySelector("#birthMonthInput"),
     tagSuggestionsInput: document.querySelector("#tagSuggestionsInput"),
     saveSettingsButton: document.querySelector("#saveSettingsButton"),
     exportButton: document.querySelector("#exportButton"),
@@ -81,6 +124,10 @@ function bindEvents() {
 
     if (action === "sync") syncYouTube();
     if (action === "sample") addSampleVideos();
+    if (action === "set-category") {
+      appState.ui.category = event.target.closest("[data-category]")?.dataset.category ?? "all";
+      render();
+    }
 
     const videoId = event.target.closest("[data-video-id]")?.dataset.videoId;
     if (action === "open-detail" && videoId) openDetail(videoId);
@@ -105,6 +152,7 @@ function loadState() {
     appState.settings = {
       ...appState.settings,
       ...(saved.settings ?? {}),
+      childBirthMonth: saved.settings?.childBirthMonth ?? defaultBirthMonth,
       tagSuggestions: normalizeTags(saved.settings?.tagSuggestions ?? defaultTags),
     };
   } catch {
@@ -130,6 +178,7 @@ function render() {
   elements.favoritesView.classList.toggle("hidden", appState.ui.view !== "favorites");
 
   const filtered = getFilteredVideos();
+  renderCategoryFilters(appState.videos);
   renderStatus(filtered.length);
   renderHome(filtered);
   renderTimeline(filtered);
@@ -142,6 +191,29 @@ function renderStatus(count) {
     ? `最終同期: ${formatDateTime(appState.settings.lastSyncAt)}`
     : "YouTube未同期";
   elements.statusLine.textContent = `${total}件の動画 / 表示中 ${count}件 / ${syncText}`;
+}
+
+function renderCategoryFilters(videos) {
+  if (!videos.length) {
+    elements.categoryFilters.innerHTML = "";
+    return;
+  }
+
+  const counts = videos.reduce((result, video) => {
+    const category = getAutoCategory(video);
+    result[category] = (result[category] ?? 0) + 1;
+    return result;
+  }, {});
+  const categories = ["all", ...Object.keys(counts).sort((a, b) => counts[b] - counts[a])];
+
+  elements.categoryFilters.innerHTML = categories
+    .map((category) => {
+      const active = appState.ui.category === category;
+      const label = category === "all" ? "すべて" : category;
+      const count = category === "all" ? videos.length : counts[category];
+      return `<button class="category-button ${active ? "active" : ""}" type="button" data-action="set-category" data-category="${escapeAttribute(category)}">${escapeHtml(label)} ${count}</button>`;
+    })
+    .join("");
 }
 
 function renderHome(videos) {
@@ -241,6 +313,8 @@ function renderVideoCard(video) {
   const title = getEffectiveTitle(video);
   const date = getEffectiveDate(video);
   const tags = meta.tags ?? [];
+  const category = getAutoCategory(video);
+  const age = getAgeLabel(date);
 
   return `
     <article class="video-card">
@@ -257,7 +331,11 @@ function renderVideoCard(video) {
           <span>${formatDate(date)}</span>
           <span class="privacy">${privacyLabel(video.privacyStatus)}</span>
         </div>
-        ${tags.length ? `<div class="chip-row">${tags.slice(0, 3).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+        <div class="chip-row">
+          <span class="chip category-chip">${escapeHtml(category)}</span>
+          ${age ? `<span class="chip age-chip">${escapeHtml(age)}</span>` : ""}
+          ${tags.slice(0, 2).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}
+        </div>
       </div>
     </article>
   `;
@@ -282,6 +360,9 @@ function openDetail(videoId) {
 
   const meta = getMeta(video.id);
   const title = getEffectiveTitle(video);
+  const date = getEffectiveDate(video);
+  const category = getAutoCategory(video);
+  const age = getAgeLabel(date);
   elements.detailTitle.textContent = title;
   elements.detailContent.innerHTML = `
     <div class="detail-layout">
@@ -295,7 +376,9 @@ function openDetail(videoId) {
           </iframe>
         </div>
         <div class="detail-facts">
-          <div class="fact"><span>撮影日</span><strong>${formatDate(getEffectiveDate(video))}</strong></div>
+          <div class="fact"><span>撮影日</span><strong>${formatDate(date)}</strong></div>
+          <div class="fact"><span>年齢</span><strong>${escapeHtml(age || "未設定")}</strong></div>
+          <div class="fact"><span>自動カテゴリ</span><strong>${escapeHtml(category)}</strong></div>
           <div class="fact"><span>投稿日</span><strong>${formatDate(video.publishedAt)}</strong></div>
           <div class="fact"><span>公開状態</span><strong>${privacyLabel(video.privacyStatus)}</strong></div>
           <div class="fact"><span>再生時間</span><strong>${video.duration ? formatDuration(video.duration) : "不明"}</strong></div>
@@ -396,12 +479,14 @@ function toggleFavorite(videoId) {
 
 function openSettings() {
   elements.clientIdInput.value = appState.settings.clientId ?? "";
+  elements.birthMonthInput.value = appState.settings.childBirthMonth ?? defaultBirthMonth;
   elements.tagSuggestionsInput.value = appState.settings.tagSuggestions.join(", ");
   elements.settingsDialog.showModal();
 }
 
 function saveSettings() {
   appState.settings.clientId = elements.clientIdInput.value.trim();
+  appState.settings.childBirthMonth = elements.birthMonthInput.value || defaultBirthMonth;
   appState.settings.tagSuggestions = normalizeTags(elements.tagSuggestionsInput.value.split(","));
   saveState();
   setStatus("設定を保存しました。");
@@ -651,13 +736,19 @@ function upsertVideos(videos) {
 function getFilteredVideos() {
   const query = appState.ui.search.toLowerCase();
   const videos = [...appState.videos].sort((a, b) => getEffectiveDate(b) - getEffectiveDate(a));
-  if (!query) return videos;
-
   return videos.filter((video) => {
+    const category = getAutoCategory(video);
+    if (appState.ui.category !== "all" && category !== appState.ui.category) return false;
+    if (!query) return true;
+
     const meta = getMeta(video.id);
     const fields = [
       getEffectiveTitle(video),
+      video.youtubeTitle,
+      video.description,
       meta.note,
+      category,
+      getAgeLabel(getEffectiveDate(video)),
       ...(meta.tags ?? []),
       formatDate(getEffectiveDate(video)),
       formatMonthKey(getEffectiveDate(video)),
@@ -681,6 +772,41 @@ function getEffectiveDate(video) {
 
 function getThumbnail(video) {
   return video.thumbnailUrl || `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`;
+}
+
+function getAutoCategory(video) {
+  const text = [
+    getEffectiveTitle(video),
+    video.youtubeTitle,
+    video.description,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const matched = categoryRules.find((rule) =>
+    rule.keywords.some((keyword) => text.includes(keyword.toLowerCase())),
+  );
+  return matched?.label ?? "日常";
+}
+
+function getAgeLabel(value) {
+  const birthMonth = appState.settings.childBirthMonth || defaultBirthMonth;
+  const match = birthMonth.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return "";
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const birthYear = Number(match[1]);
+  const birthMonthIndex = Number(match[2]) - 1;
+  const monthDiff = (date.getFullYear() - birthYear) * 12 + date.getMonth() - birthMonthIndex;
+  if (monthDiff < 0) return "生まれる前";
+  if (monthDiff < 12) return `生後${monthDiff}か月`;
+
+  const years = Math.floor(monthDiff / 12);
+  const months = monthDiff % 12;
+  return `${years}歳${months}か月`;
 }
 
 function groupByDay(videos) {
@@ -738,6 +864,7 @@ async function importJson(event) {
     appState.settings = {
       ...appState.settings,
       ...(imported.settings ?? {}),
+      childBirthMonth: imported.settings?.childBirthMonth ?? appState.settings.childBirthMonth ?? defaultBirthMonth,
       tagSuggestions: normalizeTags(imported.settings?.tagSuggestions ?? appState.settings.tagSuggestions),
     };
     saveState();

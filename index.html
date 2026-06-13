@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>こども動画アルバム</title>
-    <link rel="stylesheet" href="./styles.css?v=20260613-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260613-3" />
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body>
@@ -36,6 +36,7 @@
             <button class="tab" type="button" data-view="favorites">お気に入り</button>
           </nav>
         </section>
+        <section class="category-filters" id="categoryFilters" aria-label="カテゴリ絞り込み"></section>
 
         <section class="status-line" id="statusLine" aria-live="polite"></section>
 
@@ -76,6 +77,11 @@
           <p class="help-text">
             YouTube同期に使います。Google CloudでYouTube Data API v3を有効化し、OAuthクライアントIDを作成してください。
           </p>
+
+          <label>
+            子供の生年月
+            <input id="birthMonthInput" type="month" />
+          </label>
 
           <label>
             タグ候補
@@ -130,6 +136,6 @@
       </div>
     </template>
 
-    <script src="./app.js?v=20260613-2"></script>
+    <script src="./app.js?v=20260613-3"></script>
   </body>
 </html>
