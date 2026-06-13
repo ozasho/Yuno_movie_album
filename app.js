@@ -200,8 +200,9 @@ function renderCategoryFilters(videos) {
   }
 
   const counts = videos.reduce((result, video) => {
-    const category = getAutoCategory(video);
-    result[category] = (result[category] ?? 0) + 1;
+    getAutoCategories(video).forEach((category) => {
+      result[category] = (result[category] ?? 0) + 1;
+    });
     return result;
   }, {});
   const categories = ["all", ...Object.keys(counts).sort((a, b) => counts[b] - counts[a])];
@@ -313,7 +314,7 @@ function renderVideoCard(video) {
   const title = getEffectiveTitle(video);
   const date = getEffectiveDate(video);
   const tags = meta.tags ?? [];
-  const category = getAutoCategory(video);
+  const categories = getAutoCategories(video);
   const age = getAgeLabel(date);
 
   return `
@@ -332,7 +333,7 @@ function renderVideoCard(video) {
           <span class="privacy">${privacyLabel(video.privacyStatus)}</span>
         </div>
         <div class="chip-row">
-          <span class="chip category-chip">${escapeHtml(category)}</span>
+          ${categories.slice(0, 3).map((category) => `<span class="chip category-chip">${escapeHtml(category)}</span>`).join("")}
           ${age ? `<span class="chip age-chip">${escapeHtml(age)}</span>` : ""}
           ${tags.slice(0, 2).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}
         </div>
@@ -361,7 +362,7 @@ function openDetail(videoId) {
   const meta = getMeta(video.id);
   const title = getEffectiveTitle(video);
   const date = getEffectiveDate(video);
-  const category = getAutoCategory(video);
+  const categories = getAutoCategories(video);
   const age = getAgeLabel(date);
   elements.detailTitle.textContent = title;
   elements.detailContent.innerHTML = `
@@ -378,7 +379,7 @@ function openDetail(videoId) {
         <div class="detail-facts">
           <div class="fact"><span>撮影日</span><strong>${formatDate(date)}</strong></div>
           <div class="fact"><span>年齢</span><strong>${escapeHtml(age || "未設定")}</strong></div>
-          <div class="fact"><span>自動カテゴリ</span><strong>${escapeHtml(category)}</strong></div>
+          <div class="fact"><span>自動カテゴリ</span><strong>${escapeHtml(categories.join(" / "))}</strong></div>
           <div class="fact"><span>投稿日</span><strong>${formatDate(video.publishedAt)}</strong></div>
           <div class="fact"><span>公開状態</span><strong>${privacyLabel(video.privacyStatus)}</strong></div>
           <div class="fact"><span>再生時間</span><strong>${video.duration ? formatDuration(video.duration) : "不明"}</strong></div>
@@ -737,8 +738,8 @@ function getFilteredVideos() {
   const query = appState.ui.search.toLowerCase();
   const videos = [...appState.videos].sort((a, b) => getEffectiveDate(b) - getEffectiveDate(a));
   return videos.filter((video) => {
-    const category = getAutoCategory(video);
-    if (appState.ui.category !== "all" && category !== appState.ui.category) return false;
+    const categories = getAutoCategories(video);
+    if (appState.ui.category !== "all" && !categories.includes(appState.ui.category)) return false;
     if (!query) return true;
 
     const meta = getMeta(video.id);
@@ -747,7 +748,7 @@ function getFilteredVideos() {
       video.youtubeTitle,
       video.description,
       meta.note,
-      category,
+      ...categories,
       getAgeLabel(getEffectiveDate(video)),
       ...(meta.tags ?? []),
       formatDate(getEffectiveDate(video)),
@@ -774,7 +775,7 @@ function getThumbnail(video) {
   return video.thumbnailUrl || `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`;
 }
 
-function getAutoCategory(video) {
+function getAutoCategories(video) {
   const text = [
     getEffectiveTitle(video),
     video.youtubeTitle,
@@ -784,10 +785,10 @@ function getAutoCategory(video) {
     .join(" ")
     .toLowerCase();
 
-  const matched = categoryRules.find((rule) =>
-    rule.keywords.some((keyword) => text.includes(keyword.toLowerCase())),
-  );
-  return matched?.label ?? "日常";
+  const matched = categoryRules
+    .filter((rule) => rule.keywords.some((keyword) => text.includes(keyword.toLowerCase())))
+    .map((rule) => rule.label);
+  return matched.length ? [...new Set(matched)] : ["日常"];
 }
 
 function getAgeLabel(value) {
